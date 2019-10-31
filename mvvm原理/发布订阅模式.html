@@ -1,0 +1,48 @@
+<script>
+        // 发布订阅模式 publish/ subscribe 
+        
+        //发布者的订阅消息器
+        class Publisher {
+          constructor(){
+            this.subscribes = []//存放订阅者
+          }
+          //添加订阅者
+          addSub(sub) {
+            if(this.subscribes.indexOf(sub) === -1){
+              this.subscribes.push(sub)
+            }
+          }
+          //删除订阅者
+          removeSub(sub) {
+            let index = this.subscribes.indexOf(sub)
+            if(index > -1){
+              this.subscribes.splice(index, 1)
+            }
+          }
+          //通知订阅者更新
+          notify() {
+            this.subscribes.forEach(sub=>sub.update())
+          }
+        }
+
+        //订阅者
+        class Subscriber {
+          constructor(name){
+            this.name = name
+          }
+          //更新
+          update() {
+            console.log(`${this.name} updated`)
+          }
+          addToPub(pub) {
+            pub.addSub(this)
+          }
+        }
+        let pub = new Publisher()
+        let sub1 = new Subscriber('hunger')
+        let sub2 = new Subscriber('valley')
+        
+        sub1.addToPub(pub)
+        sub2.addToPub(pub)
+        pub.notify()
+      </script>
