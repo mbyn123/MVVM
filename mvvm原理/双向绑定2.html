@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>MVVM 单向绑定</title>
+</head>
+
+<body>
+
+    <div id="app">
+        <input v-model="name" type="text">
+        <h1>{{name}} 's age is {{age}}</h1>
+    </div>
+
+    <script>
+        //Observer 监听
+        //2.对data进行数据劫持,进行监听
+        function observe(data) {
+            if (!data || typeof data !== 'object') return //如果data不存在或data不是一个对象,就不操作
+            for (var key in data) {//对data进行遍历
+                let val = data[key]//获取data的数据内容val
+                let subject = new Subject()//创建Dep消息订阅器
+                Object.defineProperty(data, key, {//对data数据进行监听 data当前监听的对象,key需要修改的属性
+                    enumerable: true,//允许被遍历
+                    configurable: true,//允许被删除
+                    get: function () {//访问val的属性,调用getter方法
+                        if (currentObserver) {
+                            currentObserver.subscribeTo(subject) //订阅watcher
+                        }
+                        return val
+                    },
+                    set: function (newVal) {//修改val的属性,调用setter方法,newVal表示被修改的值
+                        val = newVal//对val数据进行更新,让修改的值等于val的值
+                        //data数据发生变化,调用Dep中的notify()
+                        subject.notify()
+                    }
+                })
+                if (typeof val === 'object') {//如果获取的val数据内容还是对象
+                    observe(val)//使用递归,再遍历val的数据内容,直到不是对象为止
+                }
+            }
+        }
+        let id = 0
+        let currentObserver = null
+
+        //Dep 消息订阅器 用于存放订阅者
+        class Subject {
+            constructor() {
+                this.id = id++
+                this.observers = []
+            }
+            addObserver(observer) {
+                this.observers.push(observer)
+            }
+            removeObserver(observer) {
+                var index = this.observers.indexOf(observer)
+                if (index > -1) {
+                    this.observers.splice(index, 1)
+                }
+            }
+            //遍历所有的订阅者Watcher,通知数据已发生变化
+            notify() {
+                this.observers.forEach(observer => {
+                    //更新视图
+                    observer.update()
+                })
+            }
+        }
+
+        //Watcher 订阅者
+        class Observer {
+            constructor(vm, key, cb) {
+                this.subjects = {}//订阅的内容
+                this.vm = vm
+                this.key = key //name age
+                this.cb = cb //拿到$el节点内容替换的方法
+                this.value = this.getValue()//获取老值,保存起来
+            }
+            //更新视图,对外暴露的方法，如果值改变就可以调用这个方法来更新
+            update() {
+                let oldVal = this.value //保存的老值
+                let value = this.getValue()//此时,获得新值 由set触发Dep中的notify,触发updata,再一次调用getValue,也就在调用一次get,获取此时data的最新值
+                if (value !== oldVal) {//将新值和老值比较,是否发生变化
+                    this.value = value //发生变化重新赋值
+                    this.cb.bind(this.vm)(value, oldVal)//触发$el节点内容替换的方法,更新视图中的data数据内容
+                }
+            }
+            //添加到Dep 消息订阅器中
+            subscribeTo(subject) {
+                if (!this.subjects[subject.id]) {
+                    subject.addObserver(this)
+                    this.subjects[subject.id] = subject
+                }
+            }
+            //获取get时候的data值
+            getValue() {
+                currentObserver = this //改变this的指向,将currentObserver作为this,与get联系起来,此时currentObserver作为全局最高的订阅者,获取get的数据值
+                let value = this.vm.$data[this.key]//获取get的时候,data的老值
+                currentObserver = null //取消currentObserver作为get,this的指向
+                return value //将值抛出
+            }
+        }
+
+        //Compile 编译
+        class Compile {
+            constructor(vm) {
+                this.vm = vm
+                this.node = vm.$el
+                this.compile()
+            }
+            //3.对模版进行编译解析
+            compile() {
+                this.traverse(this.node)//调用traverse方法
+            }
+            //对当前$el节点进行遍历,获取$el节点的所有内容
+            traverse(node) {
+                if (node.nodeType === 1) {//1表示为元素节点,如果还有节点
+                    this.compileNode(node)   //解析节点上的v-bind 属性
+                    node.childNodes.forEach(childNode => {
+                        this.traverse(childNode)//就使用递归,继续遍历,直到获取完所有内容
+                    })
+                } else if (node.nodeType === 3) { //3表示为文本节点,如果遍历到了文本节点表示,当前$el节点遍历,解析完毕
+                    this.renderText(node)//就调用renderText方法
+                }
+            }
+            //替换模版$el节点的内容
+            renderText(node) {
+                let reg = /{{(.+?)}}/g //使用正则匹配$el节点中的{{}}
+                let match
+                while (match = reg.exec(node.nodeValue)) {//使用正则中的exec方法对$el节点内容进行匹配检索,返回一个数组
+                    let raw = match[0]//{{name}}{{age}}
+                    let key = match[1].trim()//name age
+                    node.nodeValue = node.nodeValue.replace(raw, this.vm.$data[key])//对正则检索匹配到的内容进行替换,初始化视图
+
+                    //创建订阅Watcher,更新视图  每解析一个{{}},就给它订阅一个Watcher
+                    new Observer(this.vm, key, function (val, oldVal) {
+                        node.nodeValue = node.nodeValue.replace(oldVal, val)//将$el节点内容替换的方法,作为回调传入订阅者Watcher中
+                    })
+                }
+            }
+
+            //处理指令
+            compileNode(node) {
+                let attrs = [...node.attributes] //获取$el节点的属性集合,转化成数组
+                
+                attrs.forEach(attr => {//对数组遍历,获取节点属性名
+                    if (this.isDirective(attr.name)) { //属性名判断为指令
+                        let key = attr.value // 为当前指令绑定的属性名称{{name}}
+                        node.value = this.vm.$data[key]// 为当前{{name}}变量对应的值,lsq
+                        new Observer(this.vm, key, function (newVal) {//绑定订阅者Watcher
+                            node.value = newVal //更新当前的数据
+                        })
+                        //v-model的更新函数 监听input事件,让input输入框中的值与data里面的值相等
+                        node.oninput = (e) => {
+                            this.vm.$data[key] = e.target.value  //因为是箭头函数，所以这里的 this 是 compile 对象
+                        }
+                    }
+                })
+            }
+            //判断属性名是否是指令
+            isDirective(attrName) {
+                return attrName === 'v-model'
+            }
+        }
+
+
+        class mvvm {
+            constructor(opts) {
+                this.init(opts) //1.初始化,保存现有的数据
+                observe(this.$data)//2.对data数据进行监听
+                new Compile(this)//3.对模版进行解析编译
+            }
+            //1.获取vm实例的$el节点,$data数据内容
+            init(opts) {
+                this.$el = document.querySelector(opts.el)//获取vm实例中的el节点
+                this.$data = opts.data//获取vm实例中的data数据内容
+                this.observers = []
+            }
+
+        }
+
+
+        let vm = new mvvm({
+            el: '#app',
+            data: {
+                name: 'lsq',
+                age: 20
+            }
+        })
+// setInterval(function(){
+//   vm.$data.age++
+// }, 1000)
+    </script>
+</body>
+
+</html>

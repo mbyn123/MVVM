@@ -17,7 +17,7 @@ function observe(data) {
   if(!data || typeof data !== 'object') return //如果data不存在或data不是一个对象,就不操作
   for(var key in data) {//对data进行遍历
     let val = data[key]//获取data的数据内容val
-    let subject = new Subject()
+    let subject = new Subject()//创建Dep消息订阅器
     Object.defineProperty(data, key, {//对data数据进行监听 data当前监听的对象,key需要修改的属性
       enumerable: true,//允许被遍历
       configurable: true,//允许被删除
@@ -92,7 +92,7 @@ class Observer{
   }
   //获取get时候的data值
   getValue(){
-    currentObserver = this //改变this的指向,将currentObserver作为this,与get联系起来
+    currentObserver = this //改变this的指向,将currentObserver作为this,与get联系起来,此时currentObserver作为全局最高的订阅者,获取get的数据值
     let value = this.vm.$data[this.key]//获取get的时候,data的老值
     currentObserver = null //取消currentObserver作为get,this的指向
     return value //将值抛出
@@ -100,21 +100,15 @@ class Observer{
 } 
 
 //Compile 编译
-class mvvm {
-  constructor(opts) {
-    this.init(opts) //1.初始化,保存现有的数据
-    observe(this.$data)//2.对data数据进行监听
-    this.compile()//3.对模版进行解析编译
+class Compile{
+  constructor(vm){
+   this.vm=vm
+   this.node=vm.$el
+   this.compile()
   }
-  //1.获取vm实例的$el节点,$data数据内容
-  init(opts){
-    this.$el = document.querySelector(opts.el)//获取vm实例中的el节点
-    this.$data = opts.data//获取vm实例中的data数据内容
-    this.observers = []
-  }
-  //3.对模版进行编译解析
+    //3.对模版进行编译解析
   compile(){
-    this.traverse(this.$el)//调用traverse方法
+    this.traverse(this.node)//调用traverse方法
   }
   //对当前$el节点进行遍历,获取$el节点的所有内容
   traverse(node){
@@ -133,15 +127,30 @@ class mvvm {
     while(match = reg.exec(node.nodeValue)){//使用正则中的exec方法对$el节点内容进行匹配检索,返回一个数组
       let raw = match[0]//{{name}}{{age}}
       let key = match[1].trim()//name age
-      node.nodeValue = node.nodeValue.replace(raw, this.$data[key])//对正则检索匹配到的内容进行替换,初始化视图
-
-      //订阅Watcher,更新视图
-      new Observer(this, key, function(val, oldVal){
+      node.nodeValue = node.nodeValue.replace(raw, this.vm.$data[key])//对正则检索匹配到的内容进行替换,初始化视图
+ 
+      //创建订阅Watcher,更新视图  每解析一个{{}},就给它订阅一个Watcher
+      new Observer(this.vm, key, function(val, oldVal){
         node.nodeValue = node.nodeValue.replace(oldVal, val)//将$el节点内容替换的方法,作为回调传入订阅者Watcher中
       })
     }    
   }
-    
+}
+
+
+class mvvm {
+  constructor(opts) {
+    this.init(opts) //1.初始化,保存现有的数据
+    observe(this.$data)//2.对data数据进行监听
+    new Compile(this)//3.对模版进行解析编译
+  }
+  //1.获取vm实例的$el节点,$data数据内容
+  init(opts){
+    this.$el = document.querySelector(opts.el)//获取vm实例中的el节点
+    this.$data = opts.data//获取vm实例中的data数据内容
+    this.observers = []
+  }
+
 }
 
 
